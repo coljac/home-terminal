@@ -1,2 +1,4 @@
-# home-terminal
-Tool to expose an SSH server as a home page
+# Home Terminal
+
+Shamelessly copied from [https://github.com/gleich/terminal](https://github.com/gleich/terminal) and implemented in python.
+

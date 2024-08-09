@@ -1,7 +1,4 @@
 paramiko
 prompt-toolkit
-termcolor
 requests
-tabulate
-python_dotenv
 rich

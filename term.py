@@ -1,26 +1,56 @@
+import os
+import importlib
 import paramiko
 import socket
 import threading
-
-# from prompt_toolkit import PromptSession
-# from prompt_toolkit.patch_stdout import patch_stdout
-# from prompt_toolkit.input import PipeInput, create_pipe_input
-# from prompt_toolkit.output import DummyOutput
 from rich.console import Console
 from rich.text import Text
 from io import StringIO
+from commands import base_command
+BaseCommand = base_command.BaseCommand
 
+def message_handler(terminal):
+    terminal.send_rich("Enter your message (Press enter when done):")
+    terminal.console.print("\r\n> ", style="bold yellow", end=None)
 
-class Command(object):
-    def __init__(self, name, description, function):
-        self.name = name
-        self.description = description
-        self.function = function
+    message = ""
+    while True:
+        char = terminal.channel.recv(1).decode("utf-8")
+        if char == "\r" or char == "\n":
+            break
+        elif char == "\x7f":  # Backspace
+            if message:
+                message = message[:-1]
+                terminal.channel.send("\b \b")
+        else:
+            message += char
+            terminal.channel.send(char)
 
+    if message:
+        with open("messages.txt", "a") as f:
+            f.write(message + "\n")
+        return "\nMessage saved successfully!"
+    else:
+        return "\nNo message entered."
 
-COMMANDS = [
-    Command("about", "About me", lambda: "I'm great"),
-]
+def load_commands(commands_dir="./commands"):
+    commands = []
+    for filename in os.listdir(commands_dir):
+        if filename.endswith('.py') and filename != 'base_command.py':
+            module_name = filename[:-3]  # Remove .py extension
+            module_path = os.path.join(commands_dir, filename)
+            spec = importlib.util.spec_from_file_location(module_name, module_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            for item in dir(module):
+                obj = getattr(module, item)
+                if isinstance(obj, type) and issubclass(obj, BaseCommand) and obj is not BaseCommand:
+                    command = obj()
+                    commands.append(command)
+    return commands
+
+COMMANDS = load_commands('commands')
 
 
 class SSHOutput(StringIO):
@@ -41,20 +71,13 @@ class SSHTerminal:
     def send_rich(self, text, newline=True):
         self.console.print(text)
 
-    def run(self):
-        # text.stylize("bold magenta", 0, 6)
-        # self.send_rich(text)
-        # self.channel.send("\033[1;34mAAAAAAbout me...\033[0m\r\n")
-        # text = Text.from_ansi("\033[1mHello, World!\033[0m")
-        # self.send_rich(text)
-        # text = Text.assemble(("Hello", "bold magenta"), " World!")
-        # self.send_rich(text)
+    def prompt(self):
+        self.console.print("\r\nλ ", style="bold green", end=None)
 
-        # self.channel.send("Welcome to the terminal!\r\n")
-        # self.channel.send(self.help_text())
-        # self.channel.send("\r\nλ ")
-        self.send_rich("Welcome to the terminal!\n")
+    def run(self):
+        self.send_rich("Welcome to my home terminal!\n")
         self.send_rich(self.help_text())
+        self.prompt()
 
         while True:
             cmd = ""
@@ -81,31 +104,13 @@ class SSHTerminal:
             elif cmd in [x.name for x in self.commands]:
                 for c in self.commands:
                     if c.name == cmd:
-                        self.send_rich(c.function())
-            # elif command == "help":
-            # self.channel.send(self.help_text())
-            # elif command in ["clear", "c"]:
-            # self.channel.send("\033[2J\033[H")
-            # elif command == "about":
-            # self.about()
-            # elif command == "workouts":
-            # self.workouts()
-            # elif command == "projects":
-            # self.projects()
-            # elif command == "games":
-            # self.games()
-            elif cmd == "":
-                pass
+                        result = c.execute(self)
+                        self.send_rich(result)
             else:
-                self.channel.send(
-                    f"\nInvalid command '{cmd}'. Type `help` to see available commands.\n\n"
-                )
+                self.send_rich(f"Invalid command '{cmd}'. Type `help` to see available commands.\n")
 
-            # self.channel.send(
-            # Color("bold green").get_ansi_codes() + "Hello, World!\033[0m"
-            # )
-            self.console.print("\r\nλ ", style="bold green", end=None)
-            # self.send_rich(Text("λ ", "bold green"), newline=False)
+            self.prompt()
+
         self.channel.close()
 
     def help_text(self):
@@ -114,32 +119,8 @@ class SSHTerminal:
             command_str = Text.assemble(
                 (command.name + "\t\t", "bold blue"), (command.description, "white")
             )
-            help_text = Text.assemble(help_text, command_str)
+            help_text = Text.assemble(help_text, command_str + "\n")
         return help_text
-        return """
-Available commands:\r
-about     a little about myself\r
-workouts  my recent workouts from Strava\r
-
-projects  recent projects I've worked on from GitHub
-games     games I've recently played on Steam
-
-help      displays this help table
-exit      exit out of terminal
-clear     clear the terminal
-"""
-
-    def about(self):
-        self.channel.send("About me...\r\n")
-
-    def workouts(self):
-        self.channel.send("Recent workouts...\r\n")
-
-    def projects(self):
-        self.channel.send("Recent projects...\r\n")
-
-    def games(self):
-        self.channel.send("Recently played games...\r\n")
 
 
 class SSHServer(paramiko.ServerInterface):
@@ -173,7 +154,7 @@ class SSHServer(paramiko.ServerInterface):
 def handle_client(client_socket, addr):
     try:
         transport = paramiko.Transport(client_socket)
-        transport.add_server_key(paramiko.RSAKey(filename="./colterm"))
+        transport.add_server_key(paramiko.RSAKey(filename="./coltermf"))
 
         server = SSHServer()
         transport.start_server(server=server)

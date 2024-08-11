@@ -2,3 +2,4 @@ paramiko
 prompt-toolkit
 requests
 rich
+rich_pixels

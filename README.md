@@ -13,7 +13,7 @@ Can be done with or without a container - container is probably easiest, especia
 - Clone the repo.
 - Define the commands you want, as below.
 - Install extra python dependencies if required for your commands.
-- Run `term.py`, specifying `SSH_PORT` (default: 22) and `TERM_COMMANDS_DIR` (default: `./commands`) in the environment.
+- Run `term.py`, specifying `SSH_PORT` (default: 22) and `TERM_COMMANDS_DIR` (default: `./commands`) in the environment. Optionally, add a `TERM_WELCOME` var that points to a file to be sent on login.
 - It also needs a key pair to run, generate with `ssh-keygen -t rsa -f ./id_rsa`. You can override the default with the `TERM_KEYFILE` env var.
 
 With docker:

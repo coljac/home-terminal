@@ -173,7 +173,11 @@ class SSHTerminal:
         self.console.print("\r\nλ ", style="bold green", end=None)
 
     def run(self):
-        self.send_rich("Welcome to my home terminal!\n")
+        welcome_message = "Welcome to my home terminal!\n"
+        if "TERM_WELCOME" in os.environ:
+            with(os.environ['TERM_WELCOME'], 'r') as f:
+                welcome_message = f.read()
+        self.send_rich(welcome_message)
         self.send_rich(self.help_text())
         self.prompt()
 

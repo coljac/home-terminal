@@ -175,7 +175,7 @@ class SSHTerminal:
     def run(self):
         welcome_message = "Welcome to my home terminal!\n"
         if "TERM_WELCOME" in os.environ:
-            with(os.environ['TERM_WELCOME'], 'r') as f:
+            with open(os.environ['TERM_WELCOME'], 'r') as f:
                 welcome_message = f.read()
         self.send_rich(welcome_message)
         self.send_rich(self.help_text())

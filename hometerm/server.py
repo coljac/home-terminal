@@ -75,10 +75,11 @@ class SSHOutputold(StringIO):
 
 
 class SSHTerminal:
-    def __init__(self, channel, commands):
+    def __init__(self, channel, commands, addr=None):
         self.channel = channel
         self.console = Console(file=SSHOutput(channel), force_terminal=True)
         self.commands = commands
+        self.addr = addr
 
     def send_rich(self, text, newline=True):
         self.console.print(text)
@@ -275,7 +276,7 @@ class TerminalServer(object):
                 print("Client never asked for a shell")
                 return
 
-            terminal = SSHTerminal(channel, commands=self.commands)
+            terminal = SSHTerminal(channel, commands=self.commands, addr=addr)
             terminal.run()
         finally:
             with self.connection_lock:

@@ -9,11 +9,9 @@ RUN apt-get install -y openssh-client
 COPY . /app
 
 RUN pip install --no-cache-dir -r requirements.txt
-RUN ssh-keygen -q -t rsa -N '' -f id_rsa
+RUN rm -f id_rsa* && ssh-keygen -q -t rsa -N '' -f id_rsa
 
 EXPOSE 2022
 EXPOSE 22
 
-ENV PYTHONPATH=/app/hometerm
-# Run the Python script when the container launches
-CMD ["python", "hometerm/term.py"]
+ENTRYPOINT ["bash", "entrypoint.sh"]

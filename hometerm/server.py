@@ -111,7 +111,7 @@ class SSHTerminal:
                         cmd += char
                         self.channel.send(char)
 
-            cmd = cmd.strip()
+            cmd = cmd.strip().lower()
             self.channel.send("\r\n")
 
             if cmd == "exit":

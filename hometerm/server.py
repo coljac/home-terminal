@@ -12,7 +12,6 @@ from hometerm.command import Command
 import re
 import threading
 import logging
-from memory_profiler import profile
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -284,7 +283,6 @@ class TerminalServer(object):
             transport.close()
             logger.info("Connection from %s closed" % str(addr))
 
-    @profile
     def start(self):
         port = int(os.environ.get("SSH_PORT", 22))
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

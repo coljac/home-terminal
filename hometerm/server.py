@@ -17,6 +17,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 CONNECTION_LIMIT = 20
+MAX_ERRORS = 3
 
 COMMANDS_DIR = os.environ.get("TERM_COMMANDS_DIR", "./commands")
 TERM_KEYFILE = os.environ.get("TERM_KEYFILE", "./id_rsa")
@@ -80,6 +81,7 @@ class SSHTerminal:
         self.console = Console(file=SSHOutput(channel), force_terminal=True)
         self.commands = commands
         self.addr = addr
+        self.consecutive_errors = 0
 
     def send_rich(self, text, newline=True):
         self.console.print(text)
@@ -97,6 +99,9 @@ class SSHTerminal:
         self.prompt()
 
         while True:
+            if self.consecutive_errors > MAX_ERRORS: # Bot? Booted!
+                self.send_rich(Text("Too many errors. Exiting...", "bold red"))
+                break
             cmd = ""
             while not cmd.endswith("\r") and not cmd.endswith("\n"):
                 if self.channel.recv_ready():
@@ -117,8 +122,10 @@ class SSHTerminal:
             if cmd == "exit":
                 break
             elif cmd == "help":
+                self.consecutive_errors = 0
                 self.send_rich(self.help_text())
             elif cmd in [x.name for x in self.commands]:
+                self.consecutive_errors = 0
                 for c in self.commands:
                     if c.name == cmd:
                         try:
@@ -128,6 +135,8 @@ class SSHTerminal:
                             logger.error(f"Error executing command {cmd}: {e}")
                             self.send_rich(Text("Oops. Error!", "bold red"))
             else:
+                self.consecutive_errors += 1
+                logger.info(f"Invalid command '{cmd} by {self.addr}") # Gather bot info
                 self.send_rich(
                     f"Invalid command '{cmd}'. Type `help` to see available commands.\n"
                 )

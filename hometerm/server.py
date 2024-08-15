@@ -136,7 +136,7 @@ class SSHTerminal:
                             self.send_rich(Text("Oops. Error!", "bold red"))
             else:
                 self.consecutive_errors += 1
-                logger.info(f"Invalid command '{cmd} by {self.addr}") # Gather bot info
+                logger.info(f"Invalid command '{cmd}' by {self.addr}") # Gather bot info
                 self.send_rich(
                     f"Invalid command '{cmd}'. Type `help` to see available commands.\n"
                 )

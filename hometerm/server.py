@@ -91,7 +91,7 @@ class SSHTerminal:
         welcome_message = "Welcome to my home terminal!\n"
         if "TERM_WELCOME" in os.environ:
             with open(os.environ['TERM_WELCOME'], 'r') as f:
-                welcome_message = f.read()
+                welcome_message = Text.from_ansi(f.read())
         self.send_rich(welcome_message)
         self.send_rich(self.help_text())
         self.prompt()
@@ -121,8 +121,12 @@ class SSHTerminal:
             elif cmd in [x.name for x in self.commands]:
                 for c in self.commands:
                     if c.name == cmd:
-                        result = c.execute(self)
-                        self.send_rich(result)
+                        try:
+                            result = c.execute(self)
+                            self.send_rich(result)
+                        except Exception as e:
+                            logger.error(f"Error executing command {cmd}: {e}")
+                            self.send_rich(Text("Oops. Error!", "bold red"))
             else:
                 self.send_rich(
                     f"Invalid command '{cmd}'. Type `help` to see available commands.\n"

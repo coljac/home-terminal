@@ -8,10 +8,11 @@ import threading
 from rich.console import Console
 from rich.text import Text
 from io import StringIO
-from hometerm.command import Command
 import re
 import threading
 import logging
+sys.path.append(".")
+from hometerm.command import Command
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

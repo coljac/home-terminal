@@ -5,11 +5,12 @@ import importlib
 import paramiko
 import socket
 import threading
+import weakref
+import gc
 from rich.console import Console
 from rich.text import Text
 from io import StringIO
 import re
-import threading
 import logging
 sys.path.append(".")
 from hometerm.command import Command
@@ -79,7 +80,8 @@ class SSHOutputold(StringIO):
 class SSHTerminal:
     def __init__(self, channel, commands, addr=None):
         self.channel = channel
-        self.console = Console(file=SSHOutput(channel), force_terminal=True)
+        self.output = SSHOutput(channel)
+        self.console = Console(file=self.output, force_terminal=True)
         self.commands = commands
         self.addr = addr
         self.consecutive_errors = 0
@@ -144,7 +146,18 @@ class SSHTerminal:
 
             self.prompt()
 
-        self.channel.close()
+        self.cleanup()
+    
+    def cleanup(self):
+        try:
+            if self.channel:
+                self.channel.close()
+            self.console.file.close()
+            self.console = None
+            self.output = None
+            self.channel = None
+        except:
+            pass
 
     def help_text(self):
         help_text = "\nAvailable commands:\n"
@@ -197,9 +210,14 @@ class TerminalServer(object):
         self.active_connections = 0
         self.connection_lock = threading.Lock()
         self.commands = []
+        self.client_threads = weakref.WeakSet()
+        self.running = True
+        self.cleanup_thread = threading.Thread(target=self._cleanup_dead_threads, daemon=True)
+        self.cleanup_thread.start()
         self.load_commands(COMMANDS_DIR)
 
     def load_commands(self, root_directory: str):
+        self.commands = []  # Clear existing commands
         commands, imported_classes, import_errors = [], [], []
 
         for root, dirs, files in os.walk(root_directory):
@@ -235,10 +253,11 @@ class TerminalServer(object):
                     )
 
                     try:
+                        # Don't delete modules, just reload them
                         if module_import_path in sys.modules:
-                            del sys.modules[module_import_path]
-
-                        module_object = importlib.import_module(module_import_path)
+                            module_object = importlib.reload(sys.modules[module_import_path])
+                        else:
+                            module_object = importlib.import_module(module_import_path)
 
                         # Iterate over items in the module_object
                         for attribute_name in dir(module_object):
@@ -266,10 +285,13 @@ class TerminalServer(object):
         self.commands += commands
 
     def handle_client(self, client_socket, addr):
+        transport = None
+        terminal = None
         try:
             with self.connection_lock:
                 if self.active_connections >= CONNECTION_LIMIT:
                     logger.warning(f"Connection limit reached. Closing connection from {addr}")
+                    client_socket.close()
                     return
                 self.active_connections += 1
             logger.info("Got a connection from %s" % str(addr))
@@ -292,10 +314,25 @@ class TerminalServer(object):
 
             terminal = SSHTerminal(channel, commands=self.commands, addr=addr)
             terminal.run()
+        except Exception as e:
+            logger.error(f"Error handling client {addr}: {e}")
         finally:
             with self.connection_lock:
                 self.active_connections -= 1
-            transport.close()
+            
+            # Cleanup in reverse order
+            if terminal:
+                terminal.cleanup()
+            if transport:
+                transport.close()
+            if client_socket:
+                try:
+                    client_socket.close()
+                except:
+                    pass
+            
+            # Force garbage collection
+            gc.collect()
             logger.info("Connection from %s closed" % str(addr))
 
     def start(self):
@@ -312,7 +349,8 @@ class TerminalServer(object):
             try:
                 client, addr = sock.accept()
                 logger.info(f"Got a connection from {addr}")
-                client_thread = threading.Thread(target=self.handle_client, args=(client, addr))
+                client_thread = threading.Thread(target=self.handle_client, args=(client, addr), daemon=True)
+                self.client_threads.add(client_thread)
                 client_thread.start()
             except socket.timeout:
                 time.sleep(0.9)  
@@ -320,5 +358,29 @@ class TerminalServer(object):
                 logger.warn(f"Error accepting connection: {e}")
 
 
+    def _cleanup_dead_threads(self):
+        """Periodically clean up dead threads"""
+        while self.running:
+            time.sleep(30)  # Check every 30 seconds
+            dead_threads = [t for t in list(self.client_threads) if not t.is_alive()]
+            for thread in dead_threads:
+                try:
+                    thread.join(timeout=1)
+                except:
+                    pass
+            gc.collect()
+    
+    def shutdown(self):
+        """Graceful shutdown"""
+        self.running = False
+        # Wait for all client threads to finish
+        for thread in list(self.client_threads):
+            if thread.is_alive():
+                thread.join(timeout=5)
+
 if __name__ == "__main__":
-    TerminalServer().start()
+    server = TerminalServer()
+    try:
+        server.start()
+    except KeyboardInterrupt:
+        server.shutdown()

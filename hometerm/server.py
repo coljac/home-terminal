@@ -9,8 +9,6 @@ import weakref
 import gc
 from rich.console import Console
 from rich.text import Text
-from io import StringIO
-import re
 import logging
 sys.path.append(".")
 from hometerm.command import Command
@@ -24,57 +22,42 @@ MAX_ERRORS = 3
 COMMANDS_DIR = os.environ.get("TERM_COMMANDS_DIR", "./commands")
 TERM_KEYFILE = os.environ.get("TERM_KEYFILE", "./id_rsa")
 
-class SSHOutput(StringIO):
+class SSHOutput:
+    """File-like object that sends output over an SSH channel."""
     def __init__(self, channel):
-        super().__init__()
         self.channel = channel
-        self.ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+        self._closed = False
         self.max_chunk_size = 1000
 
     def write(self, text):
-        if len(text) < 1000:
+        if self._closed or not self.channel:
+            return
+        if len(text) < self.max_chunk_size:
             self.channel.send(text.replace("\n", "\r\n"))
             return
         lines = text.split("\n")
-        for line in lines:
-            self._send_chunked_line(line)
-            self.channel.send("\r\n")
-
-    def _send_chunked_line(self, line):
-        chunks = []
-        current_chunk = ""
-        current_ansi = ""
-
-        for char in line:
-            if self.ansi_escape.match(char):
-                current_ansi += char
+        for i, line in enumerate(lines):
+            if len(line) > self.max_chunk_size:
+                for j in range(0, len(line), self.max_chunk_size):
+                    self.channel.send(line[j:j + self.max_chunk_size])
             else:
-                if len(current_chunk) + len(current_ansi) + 1 > self.max_chunk_size:
-                    chunks.append(current_chunk)
-                    current_chunk = current_ansi + char
-                else:
-                    current_chunk += current_ansi + char
-                current_ansi = ""
+                self.channel.send(line)
+            if i < len(lines) - 1:
+                self.channel.send("\r\n")
 
-        if current_chunk:
-            chunks.append(current_chunk)
+    def flush(self):
+        pass
 
-        for chunk in chunks:
-            self.channel.send(chunk)
+    def isatty(self):
+        return True
 
+    def close(self):
+        self._closed = True
+        self.channel = None
 
-class SSHOutputold(StringIO):
-    def __init__(self, channel):
-        super().__init__()
-        self.channel = channel
-
-    def write(self, text):
-        print(len(text))
-        if len(text) > 1000:
-            for i in range(0, len(text), 1000):
-                self.channel.send(text[i : i + 1000])
-        else:
-            self.channel.send(text.replace("\n", "\r\n"))
+    @property
+    def closed(self):
+        return self._closed
 
 
 class SSHTerminal:
@@ -108,8 +91,11 @@ class SSHTerminal:
             cmd = ""
             while not cmd.endswith("\r") and not cmd.endswith("\n"):
                 if self.channel.recv_ready():
-                    char = self.channel.recv(1).decode("utf-8")
-                    if char == "\x03":  # Ctrl+C
+                    data = self.channel.recv(1)
+                    if not data:  # Client disconnected
+                        return
+                    char = data.decode("utf-8")
+                    if char in ("\x03", "\x04"):  # Ctrl+C, Ctrl+D
                         return
                     elif char == "\x7f":  # Backspace
                         if cmd:
@@ -118,6 +104,8 @@ class SSHTerminal:
                     else:
                         cmd += char
                         self.channel.send(char)
+                else:
+                    time.sleep(0.05)
 
             cmd = cmd.strip().lower()
             self.channel.send("\r\n")
@@ -152,10 +140,12 @@ class SSHTerminal:
         try:
             if self.channel:
                 self.channel.close()
-            self.console.file.close()
+            if self.output:
+                self.output.close()
             self.console = None
             self.output = None
             self.channel = None
+            self.commands = None
         except:
             pass
 
@@ -353,7 +343,7 @@ class TerminalServer(object):
                 self.client_threads.add(client_thread)
                 client_thread.start()
             except socket.timeout:
-                time.sleep(0.9)  
+                continue
             except Exception as e:
                 logger.warn(f"Error accepting connection: {e}")
 
